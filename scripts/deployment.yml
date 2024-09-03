@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: kube-node-role-label
+  name: kube-node-role-label
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kube-node-role-label
+  template:
+    metadata:
+      labels:
+        app: kube-node-role-label
+    spec:
+      serviceAccountName: kube-node-role-label
+      restartPolicy: Always
+      containers:
+      - name: kube-node-role-label
+        args:
+        - -interval
+        - 30m
+        - -label
+        - node-type
+        image: dntosas/kube-node-role-label:0.0.1
+        imagePullPolicy: Always
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-node-role-label
+  namespace: default
+  labels:
+    app: kube-node-role-label
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-node-role-label
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: [ "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-node-role-label
+subjects:
+- kind: ServiceAccount
+  name: kube-node-role-label
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: kube-node-role-label
+  apiGroup: rbac.authorization.k8s.io
