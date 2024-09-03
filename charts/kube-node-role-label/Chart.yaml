@@ -1,0 +1,11 @@
+apiVersion: v2
+name: kube-node-role-label
+description: kube-node-role-label checks a specific label on worker node then create a role label
+type: application
+maintainers:
+  - name: dntosas
+    url: https://github.com/dntosas/kube-node-role-label
+sources:
+  - https://github.com/dntosas/kube-node-role-label
+version: 1.0.0
+appVersion: "1.0.0"
