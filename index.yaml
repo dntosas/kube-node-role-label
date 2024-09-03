@@ -2,6 +2,22 @@ apiVersion: v1
 entries:
   kube-node-role-label:
   - apiVersion: v2
+    appVersion: 1.0.2
+    created: "2024-09-03T16:37:18.393471267Z"
+    description: kube-node-role-label checks a specific label on worker node then
+      create a role label
+    digest: bec20f293da677ac920671379e1d14cf4133ca1dc447fd41b09d0ded82475d58
+    maintainers:
+    - name: dntosas
+      url: https://github.com/dntosas/kube-node-role-label
+    name: kube-node-role-label
+    sources:
+    - https://github.com/dntosas/kube-node-role-label
+    type: application
+    urls:
+    - https://github.com/dntosas/kube-node-role-label/releases/download/kube-node-role-label-1.0.2/kube-node-role-label-1.0.2.tgz
+    version: 1.0.2
+  - apiVersion: v2
     appVersion: 1.0.1
     created: "2024-09-03T15:15:04.395901883Z"
     description: kube-node-role-label checks a specific label on worker node then
@@ -33,4 +49,4 @@ entries:
     urls:
     - https://github.com/dntosas/kube-node-role-label/releases/download/kube-node-role-label-1.0.0/kube-node-role-label-1.0.0.tgz
     version: 1.0.0
-generated: "2024-09-03T15:15:04.395911391Z"
+generated: "2024-09-03T16:37:18.393485063Z"
