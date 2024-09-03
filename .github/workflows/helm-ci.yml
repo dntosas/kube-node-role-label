@@ -1,0 +1,41 @@
+name: Helm CI
+on:
+  push:
+      paths:
+      - 'deploy/kubernetes/**'
+
+jobs:
+  build:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.1
+
+      - name: Build Helm Dependencies
+        working-directory: './deploy/kubernetes'
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm dep update .
+
+      - name: Run Helm Lint
+        working-directory: './deploy/kubernetes'
+        run: |
+          helm lint --strict .
+
+      - name: Run Helm Template
+        working-directory: './deploy/kubernetes'
+        run: |
+          helm template .
+
+      - name: Run Helm Package
+        working-directory: './deploy/kubernetes'
+        run: |
+          helm package .
