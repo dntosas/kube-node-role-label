@@ -7,5 +7,5 @@ maintainers:
     url: https://github.com/dntosas/kube-node-role-label
 sources:
   - https://github.com/dntosas/kube-node-role-label
-version: 1.0.1
-appVersion: "1.0.1"
+version: 1.0.2
+appVersion: "1.0.2"

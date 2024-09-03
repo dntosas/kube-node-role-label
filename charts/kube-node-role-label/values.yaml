@@ -6,7 +6,7 @@
 replicaCount: 1
 
 image:
-  repository: dntosas/kube-node-role-label
+  repository: ghcr.io/dntosas/kube-node-role-label
   pullPolicy: Always
   # -- Overrides the image tag whose default is the chart appVersion.
   tag: ""
