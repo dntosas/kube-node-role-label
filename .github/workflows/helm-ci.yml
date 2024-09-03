@@ -20,22 +20,22 @@ jobs:
           version: v3.15.4
 
       # - name: Build Helm Dependencies
-      #   working-directory: './deploy/kubernetes'
+      #   working-directory: './charts/kube-node-role-label'
       #   run: |
       #     helm repo add bitnami https://charts.bitnami.com/bitnami
       #     helm dep update .
 
       - name: Run Helm Lint
-        working-directory: './deploy/kubernetes'
+        working-directory: './charts/kube-node-role-label'
         run: |
           helm lint --strict .
 
       - name: Run Helm Template
-        working-directory: './deploy/kubernetes'
+        working-directory: './charts/kube-node-role-label'
         run: |
           helm template .
 
       - name: Run Helm Package
-        working-directory: './deploy/kubernetes'
+        working-directory: './charts/kube-node-role-label'
         run: |
           helm package .
