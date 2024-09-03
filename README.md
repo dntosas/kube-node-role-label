@@ -66,16 +66,14 @@ kind-worker          Ready    worker                 13m   v1.20.2
 kind-worker2         Ready    worker                 13m   v1.20.2
 ```
 
-# Helm
-Add dntosas repository to Helm repos:
-```bash
-helm repo add dntosas https://dntosas.github.io/charts/
-```
+## Installation
 
-Install kube-node-role-label
-```bash
-helm install kube-node-role-label dntosas/kube-node-role-label \
---namespace kube-system
+**Helm**
+
+```console
+$ helm repo add kube-node-role-label https://dntosas.github.io/kube-node-role-label/
+$ helm repo update
+$ helm upgrade -i kube-node-role-label/kube-node-role-label kube-node-role-label/kube-node-role-label
 ```
 
 ## kube-node-role-label ARGS
