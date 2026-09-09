@@ -1,16 +1,18 @@
-# Binaries for programs and plugins
-/bin/*
+# Build output
+/bin/
+/dist/
+/kube-node-role-label
 
-# Test binary, build with `go test -c`
+# Test artifacts
 *.test
-
-# Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-# Vim
+# Helm
+*.tgz
+
+# Editors / OS
 *.swp
 *.swo
-~
-
-# e2e tests vendor files
-tests/vendor
+.idea/
+.vscode/
+.DS_Store

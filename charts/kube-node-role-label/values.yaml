@@ -1,77 +1,102 @@
 # Default values for kube-node-role-label.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
 
-# -- count of POD
+# -- Number of replicas. The controller is idempotent, but one replica is enough.
 replicaCount: 1
 
+# -- Number of old ReplicaSets to retain.
+revisionHistoryLimit: 3
+
 image:
+  # -- Container image repository.
   repository: ghcr.io/dntosas/kube-node-role-label
-  pullPolicy: Always
-  # -- Overrides the image tag whose default is the chart appVersion.
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+  # -- Image tag. Defaults to the chart appVersion.
   tag: ""
 
+# -- Secrets for pulling the image from a private registry.
 imagePullSecrets: []
+
+# -- Override the chart name.
 nameOverride: ""
+# -- Override the fully qualified release name.
 fullnameOverride: ""
 
-# -- Key/value pairs that are attached to pods.
-podAnnotations: {}
-
-# -- Key/value pairs that are attached to pods.
-podLabels: {}
-
-podSecurityContext: {}
-  # fsGroup: 2000
-
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
-
-# -- We usually recommend not to specify default resources and to leave this as a conscious
-# choice for the user. This also increases chances charts run on environments with little
-# resources, such as Minikube. If you do want to specify resources, uncomment the following
-# lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-resources: {}
-  # limits:
-  #   cpu: 20m
-  #   memory: 20Mi
-  # requests:
-  #   cpu: 10m
-  #   memory: 10Mi
-
 label_watch:
-# -- Supports format: 's', 'm', 'h'
+  # -- How often to reconcile. Node labels rarely change after a node joins, so
+  # 5m-15m is plenty. Accepts Go durations (30s, 5m, 1h).
   interval: 5m
-# -- Label that's checking on worker nodes then set label in format node-role.kubernetes.io/VALUE_FROM_LABEL=true.
-# Supports multiple labels via coma separator.
-# Example:  node-type,type,etc
+  # -- Comma-separated node label keys to watch. For every node carrying
+  # `key=value`, `node-role.kubernetes.io/<value>=true` is added.
   labels: node-type
 
-# -- Create Cluster Role to allow modify nodes
+# -- Minimum log level: debug, info, warn or error. At `info` a steady-state
+# cluster produces no output; every added role is logged once.
+logLevel: info
+
+# -- Log format: json or text.
+logFormat: json
+
+# -- Additional command-line arguments appended to the container args.
+extraArgs: []
+
+# -- Annotations added to the pod.
+podAnnotations: {}
+
+# -- Labels added to the pod (e.g. a `service` label for log routing).
+podLabels: {}
+
+# -- Pod-level security context.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container-level security context.
+securityContext:
+  allowPrivilegeEscalation: false
+  privileged: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# -- Resource requests and limits. The controller is tiny; these are generous.
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 64Mi
+
 rbac:
+  # -- Create a ClusterRole/ClusterRoleBinding allowing list+patch on nodes.
   create: true
 
-# -- Specifies whether a service account should be created
 serviceAccount:
+  # -- Create a ServiceAccount for the controller.
   create: true
-  # -- Annotations to add to the service account
+  # -- Annotations added to the ServiceAccount (e.g. for IRSA/Workload Identity).
   annotations: {}
-  # -- The name of the service account to use.
-  # If not set and create is true, a name is generated using the fullname template
+  # -- ServiceAccount name. Generated from the release name when empty.
   name: ""
+  # -- Mount the ServiceAccount token. Required for in-cluster API access.
+  automountServiceAccountToken: true
 
-# -- Node labels for pod assignment
-# ref: https://kubernetes.io/docs/user-guide/node-selection/
+# -- Priority class for the pod, e.g. `system-cluster-critical`.
+priorityClassName: ""
+
+# -- Node selector for pod scheduling.
 nodeSelector: {}
 
-# -- Tolerations for pod assignment
-# ref: https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/
+# -- Tolerations for pod scheduling.
 tolerations: []
 
-# -- Anti-affinity to disallow deploying client and master nodes on the same worker node
+# -- Affinity rules for pod scheduling.
 affinity: {}
+
+# -- Topology spread constraints for pod scheduling.
+topologySpreadConstraints: []

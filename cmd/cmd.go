@@ -1,94 +1,140 @@
+// Package cmd holds the command-line configuration of kube-node-role-label.
 package cmd
 
 import (
 	"errors"
 	"flag"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"k8s.io/client-go/util/homedir"
 )
 
-type Command struct {
-	Verbose    bool
-	Label      string
+// Build information, injected at link time by goreleaser / the Makefile.
+var (
+	Version    = "development"
+	CommitHash = "unknown"
+)
+
+// Log output formats.
+const (
+	LogFormatJSON = "json"
+	LogFormatText = "text"
+)
+
+// Config is the parsed command-line configuration.
+type Config struct {
+	// Labels are the node label keys whose values become node roles.
+	Labels []string
+	// Interval between reconciliation runs. Zero means run once and exit.
+	Interval time.Duration
+	// Kubeconfig is the path used when running outside a cluster.
 	Kubeconfig string
-	Interval   string
-	Args       *[]string
+	// LogLevel is the minimum level that gets emitted.
+	LogLevel slog.Level
+	// LogFormat is either "json" or "text".
+	LogFormat string
+	// ShowVersion prints build information and exits.
+	ShowVersion bool
 }
 
-// opts is creating flag for cli
-func opts() (c *Command, e error) {
-	c = new(Command)
-	// Detailed output info
-	flag.BoolVar(
-		&c.Verbose,
-		"v",
-		false,
-		"Makes verbose output",
+// ErrHelp is returned when the user asked for -h/--help.
+var ErrHelp = flag.ErrHelp
+
+// ParseFlags parses args (without the program name) into a Config.
+// Usage and error output is written to w.
+func ParseFlags(args []string, w io.Writer) (*Config, error) {
+	cfg := &Config{}
+	var (
+		labels   string
+		logLevel string
+		verbose  bool
 	)
 
-	// Interval if set the run util like daemon.
-	flag.StringVar(
-		&c.Interval,
-		"interval",
-		"",
-		"(optional) Start application in deamon mode. Supports format: 's', 'm', 'h'.",
-	)
+	fs := flag.NewFlagSet("kube-node-role-label", flag.ContinueOnError)
+	fs.SetOutput(w)
 
-	// Uses for finding label and conver to node-role. It's requered
-	flag.StringVar(
-		&c.Label,
-		"label",
-		"",
-		`Label that's checking on worker nodes then set label in format node-role.kubernetes.io/VALUE_FROM_LABEL=true.
-Supports multiple labels: -label node-type,type,etc
-Example:
-$ kubectl get node NODE -o jsonpath='{.metadata.labels}' | jq
-{
-	"beta.kubernetes.io/arch": "amd64",
-	....
-	"node-type": "worker"
+	fs.StringVar(&labels, "label", "",
+		"Comma-separated node label keys to watch. For every node carrying key=value,\n"+
+			"the role label node-role.kubernetes.io/<value>=true is added.\n"+
+			"Example: -label node-type,karpenter.sh/nodepool")
+	fs.DurationVar(&cfg.Interval, "interval", 0,
+		"Run as a daemon and reconcile every interval (e.g. 30s, 5m, 1h). Zero runs once and exits.")
+	fs.StringVar(&cfg.Kubeconfig, "kubeconfig", defaultKubeconfig(),
+		"Path to a kubeconfig file. Only used when in-cluster configuration is unavailable.")
+	fs.StringVar(&logLevel, "log-level", "info", "Log level: debug, info, warn or error.")
+	fs.StringVar(&cfg.LogFormat, "log-format", LogFormatJSON, "Log format: json or text.")
+	fs.BoolVar(&verbose, "v", false, "Shorthand for -log-level debug.")
+	fs.BoolVar(&cfg.ShowVersion, "version", false, "Print version information and exit.")
+
+	if err := fs.Parse(args); err != nil {
+		return nil, err
+	}
+	if cfg.ShowVersion {
+		return cfg, nil
+	}
+
+	cfg.Labels = splitLabels(labels)
+	if len(cfg.Labels) == 0 {
+		return nil, errors.New("-label is required (run with -h for help)")
+	}
+	if cfg.Interval < 0 {
+		return nil, fmt.Errorf("-interval must not be negative, got %s", cfg.Interval)
+	}
+
+	cfg.LogFormat = strings.ToLower(cfg.LogFormat)
+	if cfg.LogFormat != LogFormatJSON && cfg.LogFormat != LogFormatText {
+		return nil, fmt.Errorf("-log-format must be %q or %q, got %q", LogFormatJSON, LogFormatText, cfg.LogFormat)
+	}
+
+	if verbose {
+		logLevel = "debug"
+	}
+	if err := cfg.LogLevel.UnmarshalText([]byte(logLevel)); err != nil {
+		return nil, fmt.Errorf("-log-level: %w", err)
+	}
+
+	return cfg, nil
 }
-$ kube-node-role-label -label node-type
-$ kubectl get node NODE -o jsonpath='{.metadata.labels}' | jq
-{
-	"beta.kubernetes.io/arch": "amd64",
-	....
-	"node-type": "worker",
-	"node-role.kubernetes.io/worker": "true"
-}`,
-	)
-	//Flag for kubeconfig if u run from your workstation
-	if home := homedir.HomeDir(); home != "" {
-		flag.StringVar(
-			&c.Kubeconfig,
-			"kubeconfig",
-			filepath.Join(home, ".kube", "config"),
-			"(optional) absolute path to the kubeconfig file",
-		)
+
+// NewLogger builds a slog.Logger according to the configuration.
+func (c *Config) NewLogger(w io.Writer) *slog.Logger {
+	opts := &slog.HandlerOptions{Level: c.LogLevel}
+	var h slog.Handler
+	if c.LogFormat == LogFormatText {
+		h = slog.NewTextHandler(w, opts)
 	} else {
-		flag.StringVar(
-			&c.Kubeconfig,
-			"kubeconfig",
-			"",
-			"absolute path to the kubeconfig file",
-		)
+		h = slog.NewJSONHandler(w, opts)
 	}
-
-	flag.Parse()
-	a := flag.Args()
-	c.Args = &a
-
-	return c, e
-
+	return slog.New(h)
 }
 
-// ParseFlags is
-func ParseFlags() (c *Command, e error) {
-	c, e = opts()
-	if c.Label == "" {
-		e = errors.New("flag is empty: run with -h or --help")
-	}
+// VersionString returns a human readable build description.
+func VersionString() string {
+	return fmt.Sprintf("kube-node-role-label %s (commit %s)", Version, CommitHash)
+}
 
-	return c, e
+func splitLabels(s string) []string {
+	var out []string
+	for _, l := range strings.Split(s, ",") {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func defaultKubeconfig() string {
+	if env := os.Getenv("KUBECONFIG"); env != "" {
+		return env
+	}
+	if home := homedir.HomeDir(); home != "" {
+		return filepath.Join(home, ".kube", "config")
+	}
+	return ""
 }

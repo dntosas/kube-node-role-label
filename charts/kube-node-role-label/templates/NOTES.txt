@@ -1,1 +1,12 @@
-{{- .Release.Name -}} has been deployed.
+{{ .Release.Name }} has been deployed to namespace {{ .Release.Namespace }}.
+
+Watching node label(s): {{ .Values.label_watch.labels }}
+Reconcile interval:     {{ .Values.label_watch.interval }}
+
+Follow the controller logs with:
+
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "app.fullname" . }} -f
+
+Check the resulting roles with:
+
+  kubectl get nodes
