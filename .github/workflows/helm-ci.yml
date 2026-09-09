@@ -1,41 +1,57 @@
 name: Helm CI
+
 on:
   push:
-      paths:
-      - 'deploy/kubernetes/**'
+    branches: [main]
+    paths:
+      - "charts/**"
+      - ".github/workflows/helm-ci.yml"
+  pull_request:
+    paths:
+      - "charts/**"
+      - ".github/workflows/helm-ci.yml"
+
+permissions:
+  contents: read
 
 jobs:
-  build:
-    name: Tests
+  lint:
+    name: Lint & Template
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        uses: actions/checkout@v7
 
       - name: Install Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
+
+      - name: Lint
+        run: helm lint --strict charts/kube-node-role-label
+
+      - name: Template (defaults)
+        run: helm template kube-node-role-label charts/kube-node-role-label
+
+      - name: Template (all optional values)
+        run: |
+          helm template kube-node-role-label charts/kube-node-role-label \
+            --set logLevel=debug \
+            --set logFormat=text \
+            --set extraArgs[0]=-kubeconfig \
+            --set extraArgs[1]=/dev/null \
+            --set rbac.create=false \
+            --set serviceAccount.create=false \
+            --set priorityClassName=system-cluster-critical
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
         with:
-          version: v3.15.4
+          go-version-file: go.mod
+          cache: true
 
-      # - name: Build Helm Dependencies
-      #   working-directory: './charts/kube-node-role-label'
-      #   run: |
-      #     helm repo add bitnami https://charts.bitnami.com/bitnami
-      #     helm dep update .
-
-      - name: Run Helm Lint
-        working-directory: './charts/kube-node-role-label'
+      - name: Check chart README is up to date
         run: |
-          helm lint --strict .
-
-      - name: Run Helm Template
-        working-directory: './charts/kube-node-role-label'
-        run: |
-          helm template .
-
-      - name: Run Helm Package
-        working-directory: './charts/kube-node-role-label'
-        run: |
-          helm package .
+          make helm-docs
+          git diff --exit-code -- charts/ || {
+            echo "::error::charts/*/README.md is stale, run 'make helm-docs' and commit the result"
+            exit 1
+          }

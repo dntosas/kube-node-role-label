@@ -1,49 +1,57 @@
----
-name: "CI"
+name: Go CI
+
 on:
   push:
-      paths:
-      - '.github/workflows/*'
-      - '*.go'
-      - '**/*.go'
-      - 'go.mod'
-      - 'go.sum'
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    name: Tests
+  test:
+    name: Lint & Test
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Set up Go
-        uses: actions/setup-go@v5.0.0
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.22.6'
+          go-version-file: go.mod
+          cache: true
 
-      - name: Checkout code
-        uses: actions/checkout@v4.0.0
+      - name: Verify modules
+        run: go mod tidy -diff && go mod verify
 
-      - name: Run go fmt
-        run: make fmt
-
-      - name: Run go vet
-        run: make vet
-
-      - name: Run go lint
-        uses: golangci/golangci-lint-action@v3
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: v1.54.2
-          args: --timeout 5m --enable gofmt,exportloopref --exclude-use-default=false --modules-download-mode=vendor --build-tags integration
+          version: v2.13.2
 
-      - name: Run go test
+      - name: Test
         run: make test
 
-      # - name: Upload coverage to Codecov
-      #   uses: codecov/codecov-action@v3
-      #   with:
-      #     token: ${{ secrets.CODECOV_TOKEN }}
-      #     env_vars: GO
-      #     fail_ci_if_error: true
-      #     files: ./cover.out
-      #     flags: unittests
-      #     name: codecov-umbrella
-      #     verbose: true
+      - name: Build
+        run: make build
+
+  vulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
