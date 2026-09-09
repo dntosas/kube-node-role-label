@@ -1,125 +1,131 @@
+// Package label reconciles node-role.kubernetes.io/* labels from arbitrary node labels.
 package label
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"regexp"
+	"log/slog"
 
-	"github.com/dntosas/kube-node-role-label/cmd"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
-	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
-type patchStringValue struct {
-	Op    string `json:"op"`
-	Path  string `json:"path"`
-	Value string `json:"value"`
+// RolePrefix is the well-known prefix kubectl uses to render the ROLES column.
+const RolePrefix = "node-role.kubernetes.io/"
+
+// RoleValue is the value written to every role label we manage.
+const RoleValue = "true"
+
+// controlPlaneSelector excludes control-plane nodes (both the legacy and current role labels).
+const controlPlaneSelector = "!" + RolePrefix + "master,!" + RolePrefix + "control-plane"
+
+// Labeler adds node-role labels derived from watched node labels.
+type Labeler struct {
+	client kubernetes.Interface
+	labels []string
+	log    *slog.Logger
 }
 
-var updateErr error
+// Result summarises a single reconciliation run.
+type Result struct {
+	// Nodes is the number of worker nodes inspected.
+	Nodes int
+	// Patched is the number of role labels that were added or corrected.
+	Patched int
+	// UpToDate is the number of role labels that were already correct.
+	UpToDate int
+	// Failed is the number of patches that returned an error.
+	Failed int
+}
 
-// Kubeconfig flag of path to kube config
-var Kubeconfig *string
-
-// APISet alias to connection k8s
-var APISet func() v1.CoreV1Interface
-
-func getClient(p string) (*kubernetes.Clientset, error) {
-	var c *rest.Config
-	var e error
-	// in cluster
-	c, e = rest.InClusterConfig()
-	if e != nil {
-		// out cluster
-		c, e = clientcmd.BuildConfigFromFlags("", p)
-		if e != nil {
-			return nil, e
-		}
+// New returns a Labeler that watches the given label keys.
+func New(client kubernetes.Interface, labels []string, log *slog.Logger) *Labeler {
+	if log == nil {
+		log = slog.Default()
 	}
-	return kubernetes.NewForConfig(c)
+	return &Labeler{client: client, labels: labels, log: log}
 }
 
-// APICore connect to k8s
-func APICore() (api v1.CoreV1Interface) {
-	config, err := getClient(*Kubeconfig)
+// Run performs one reconciliation pass over all worker nodes.
+//
+// Nodes that already carry the desired role label are left untouched and
+// only reported at debug level, so a steady-state cluster produces no
+// info-level output. Patch failures are logged, counted and returned as a
+// joined error after every node has been visited.
+func (l *Labeler) Run(ctx context.Context) (Result, error) {
+	var res Result
+
+	nodes, err := l.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{LabelSelector: controlPlaneSelector})
 	if err != nil {
-		panic(err.Error())
+		return res, fmt.Errorf("list nodes: %w", err)
 	}
-	// create the clientset
-	clientset := *config
+	res.Nodes = len(nodes.Items)
 
-	api = clientset.CoreV1()
-	return api
-}
-
-// PatchNodeLabel add label to node-role.kubernetes.io/$STRING=true
-func PatchNodeLabel(s, node string) (bool, error) {
-	var payload []patchStringValue
-	// ~1 is character '/'
-	pathLabel := "/metadata/labels/node-role.kubernetes.io~1" + s
-
-	payload = []patchStringValue{{
-		Op:    "add",
-		Path:  pathLabel,
-		Value: "true",
-	}}
-
-	payloadBytes, _ := json.Marshal(payload)
-	_, updateErr = APISet().Nodes().Patch(context.TODO(), node, types.JSONPatchType, payloadBytes, metav1.PatchOptions{})
-	if updateErr == nil {
-		return true, nil
-	}
-
-	return false, updateErr
-}
-
-// RunLabel function to updated k8s object
-func RunLabel(c *cmd.Command) {
-
-	// covert string to []string
-	labels := regexp.MustCompile(` *, *`).Split(c.Label, -1)
-	Kubeconfig = &c.Kubeconfig
-	// set poiner to ApiCore function
-	APISet = APICore
-
-	// get nodes without master
-	nodes, err := APISet().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: "!node-role.kubernetes.io/master"})
-	// check error
-	if err != nil {
-		panic(err.Error())
-	}
-
-	var nodePatched bool
-	// loop throught all nodes items
-	for _, node := range nodes.Items {
-
-		// get all labels for each node
-		labelsMap := node.GetLabels()
-
-		// start loop with labels what recived from cli
-		for _, l := range labels {
-
-			// started find if label what recived present in nodeLabels
-			for k, v := range labelsMap {
-				if l == k {
-					// write key from label in cli
-					nodePatched, updateErr = PatchNodeLabel(v, node.GetName())
-					if updateErr == nil {
-						fmt.Printf("Node %s has been labelled successfully. Label: node-role.kubernetes.io/%s=true \n", node.GetName(), v)
-					}
-				}
-
-			}
-
-			if !nodePatched {
-				fmt.Printf("Node %s wasn't patched becuase missed Label: %s\n", node.GetName(), l)
+	var errs []error
+	for i := range nodes.Items {
+		node := &nodes.Items[i]
+		for _, key := range l.labels {
+			if err := l.reconcile(ctx, node, key, &res); err != nil {
+				errs = append(errs, err)
 			}
 		}
 	}
+
+	l.log.Debug("reconciliation finished",
+		"nodes", res.Nodes, "patched", res.Patched, "up_to_date", res.UpToDate, "failed", res.Failed)
+
+	return res, errors.Join(errs...)
+}
+
+func (l *Labeler) reconcile(ctx context.Context, node *corev1.Node, key string, res *Result) error {
+	log := l.log.With("node", node.Name, "label", key)
+
+	role, ok := node.Labels[key]
+	if !ok {
+		log.Debug("watched label not present on node")
+		return nil
+	}
+
+	roleKey := RolePrefix + role
+	if msgs := validation.IsQualifiedName(roleKey); len(msgs) > 0 {
+		log.Warn("label value is not a valid node role, skipping", "value", role, "reason", msgs[0])
+		return nil
+	}
+
+	if node.Labels[roleKey] == RoleValue {
+		res.UpToDate++
+		log.Debug("node role already set", "role", roleKey)
+		return nil
+	}
+
+	if err := l.patch(ctx, node.Name, roleKey); err != nil {
+		res.Failed++
+		log.Error("failed to set node role", "role", roleKey, "error", err)
+		return fmt.Errorf("node %s: set %s: %w", node.Name, roleKey, err)
+	}
+
+	res.Patched++
+	log.Info("node role set", "role", roleKey)
+	return nil
+}
+
+// patch uses a strategic merge patch so it works even when the node has no labels map yet.
+func (l *Labeler) patch(ctx context.Context, node, roleKey string) error {
+	body, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{
+			"labels": map[string]string{roleKey: RoleValue},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	_, err = l.client.CoreV1().Nodes().Patch(ctx, node, types.StrategicMergePatchType, body, metav1.PatchOptions{
+		FieldManager: "kube-node-role-label",
+	})
+	return err
 }
